@@ -1,9 +1,16 @@
 const express = require("express");
 const router = express.Router();
+const { decodeAndStore } = require("../services/transactionDecoder");
 
 /*
-  Helius will POST transactions here
+============================================================
+POST /api/webhook/helius
+
+Helius sends Enhanced transaction payload here.
+Payload = Array of transaction objects.
+============================================================
 */
+
 router.post("/helius", async (req, res) => {
     try {
         console.log("🔥 Webhook received");
@@ -11,20 +18,35 @@ router.post("/helius", async (req, res) => {
         const payload = req.body;
 
         if (!payload || !Array.isArray(payload)) {
-            return res.status(400).json({ error: "Invalid payload" });
+            return res.status(400).json({ error: "Invalid payload format" });
         }
 
-        // Helius sends array of transactions
+        // IMPORTANT:
+        // Always respond fast to Helius
+        // Do NOT block webhook for too long
+        res.status(200).json({ status: "ok" });
+
+        // Process transactions asynchronously
         for (const tx of payload) {
-            console.log("Signature:", tx.signature);
-            // Later we will decode + store here
-        }
+            try {
+                const signature = tx.signature;
 
-        return res.status(200).json({ status: "ok" });
+                if (!signature) continue;
+
+                console.log("🔎 Decoding signature:", signature);
+
+                await decodeAndStore(signature);
+
+                console.log("✅ Stored:", signature);
+
+            } catch (err) {
+                console.error("❌ Decode failed:", err.message);
+                // Do NOT throw — continue processing next tx
+            }
+        }
 
     } catch (err) {
-        console.error("Webhook Error:", err.message);
-        return res.status(500).json({ error: "Internal error" });
+        console.error("🔥 Webhook Fatal Error:", err.message);
     }
 });
 
