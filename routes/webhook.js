@@ -5,6 +5,7 @@ const transactionQueue = require("../queues/transactionQueue");
 router.post("/helius", async (req, res) => {
     try {
         console.log("🔥 Webhook received");
+        console.log("📩 Raw body:", JSON.stringify(req.body).slice(0, 500));
 
         let payload = req.body;
 
@@ -27,6 +28,8 @@ router.post("/helius", async (req, res) => {
             }
         }
 
+        console.log(`📋 Transactions in payload: ${payload.length}`);
+
         // Respond immediately
         res.status(200).json({ status: "ok" });
 
@@ -35,7 +38,13 @@ router.post("/helius", async (req, res) => {
         for (const tx of payload) {
             try {
                 const signature = tx?.signature;
-                if (!signature) continue;
+
+                console.log("🔍 TX entry:", JSON.stringify(tx).slice(0, 200));
+
+                if (!signature) {
+                    console.warn("⚠️ No signature found in tx entry");
+                    continue;
+                }
 
                 await transactionQueue.add(
                     "decode",
