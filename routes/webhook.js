@@ -1,13 +1,23 @@
 const express = require("express");
 const router = express.Router();
-const { decodeAndStore } = require("../services/transactionDecoder");
+const transactionQueue = require("../queues/transactionQueue");
 
 /*
 ============================================================
 POST /api/webhook/helius
 
-Helius sends Enhanced transaction payload here.
-Payload = Array of transaction objects.
+Normal Helius webhook payload:
+[
+  {
+    signature: "...",
+    ...
+  }
+]
+
+We:
+1. Respond immediately (important for Helius)
+2. Push signatures into Redis queue
+3. Worker processes at 2/sec (rate limited)
 ============================================================
 */
 
@@ -18,32 +28,40 @@ router.post("/helius", async (req, res) => {
         const payload = req.body;
 
         if (!payload || !Array.isArray(payload)) {
-            return res.status(400).json({ error: "Invalid payload format" });
+            return res.status(400).json({
+                error: "Invalid payload format",
+            });
         }
 
-        // IMPORTANT:
-        // Always respond fast to Helius
-        // Do NOT block webhook for too long
+        // 🔥 Respond immediately (DO NOT WAIT FOR PROCESSING)
         res.status(200).json({ status: "ok" });
 
-        // Process transactions asynchronously
+        let addedCount = 0;
+
         for (const tx of payload) {
             try {
-                const signature = tx.signature;
-
+                const signature = tx?.signature;
                 if (!signature) continue;
 
-                console.log("🔎 Decoding signature:", signature);
+                // Push job to Redis queue
+                await transactionQueue.add("decode", {
+                    signature,
+                }, {
+                    attempts: 3, // retry 3 times if fails
+                    backoff: {
+                        type: "exponential",
+                        delay: 2000, // retry after 2s
+                    },
+                });
 
-                await decodeAndStore(signature);
-
-                console.log("✅ Stored:", signature);
+                addedCount++;
 
             } catch (err) {
-                console.error("❌ Decode failed:", err.message);
-                // Do NOT throw — continue processing next tx
+                console.error("❌ Failed to queue job:", err.message);
             }
         }
+
+        console.log(`📦 Added ${addedCount} jobs to Redis queue`);
 
     } catch (err) {
         console.error("🔥 Webhook Fatal Error:", err.message);

@@ -3,6 +3,7 @@ const express = require("express");
 const cors = require("cors");
 
 require("./config/db");
+require("./workers/transactionWorker");
 
 const app = express();
 
