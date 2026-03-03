@@ -2,38 +2,32 @@ const express = require("express");
 const router = express.Router();
 const transactionQueue = require("../queues/transactionQueue");
 
-/*
-============================================================
-POST /api/webhook/helius
-
-Normal Helius webhook payload:
-[
-  {
-    signature: "...",
-    ...
-  }
-]
-
-We:
-1. Respond immediately (important for Helius)
-2. Push signatures into Redis queue
-3. Worker processes at 2/sec (rate limited)
-============================================================
-*/
-
 router.post("/helius", async (req, res) => {
     try {
         console.log("🔥 Webhook received");
 
-        const payload = req.body;
+        let payload = req.body;
 
-        if (!payload || !Array.isArray(payload)) {
+        if (!payload) {
             return res.status(400).json({
-                error: "Invalid payload format",
+                error: "Empty payload",
             });
         }
 
-        // 🔥 Respond immediately (DO NOT WAIT FOR PROCESSING)
+        // Handle both formats:
+        // 1. Direct array
+        // 2. { data: [...] }
+        if (!Array.isArray(payload)) {
+            if (Array.isArray(payload.data)) {
+                payload = payload.data;
+            } else {
+                return res.status(400).json({
+                    error: "Invalid payload format",
+                });
+            }
+        }
+
+        // Respond immediately
         res.status(200).json({ status: "ok" });
 
         let addedCount = 0;
@@ -43,16 +37,19 @@ router.post("/helius", async (req, res) => {
                 const signature = tx?.signature;
                 if (!signature) continue;
 
-                // Push job to Redis queue
-                await transactionQueue.add("decode", {
-                    signature,
-                }, {
-                    attempts: 3, // retry 3 times if fails
-                    backoff: {
-                        type: "exponential",
-                        delay: 2000, // retry after 2s
-                    },
-                });
+                await transactionQueue.add(
+                    "decode",
+                    { signature },
+                    {
+                        attempts: 3,
+                        backoff: {
+                            type: "exponential",
+                            delay: 2000,
+                        },
+                        removeOnComplete: true,
+                        removeOnFail: true,
+                    }
+                );
 
                 addedCount++;
 
