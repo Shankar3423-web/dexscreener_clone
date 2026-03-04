@@ -19,6 +19,8 @@ app.use("/transaction", require("./routes/transactionRoutes"));
 const webhookRoutes = require("./routes/webhook");
 app.use("/api/webhook", webhookRoutes);
 
+app.use("/api", require("./routes/frontendRoutes"));
+
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
